@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>存货计价可视化演示</title> <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Styles remain the same as the previous version */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+            background-color: #f5f5f7;
+            padding: 1rem;
+            overscroll-behavior: none;
+            height: auto; min-height: 100vh; overflow-y: auto;
+        }
+        .container-wrapper {
+             max-width: 72rem; margin-left: auto; margin-right: auto;
+             padding: 1rem; md:padding: 2rem; lg:padding: 3rem;
+             display: flex; flex-direction: column;
+        }
+        .frosted-glass {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.07); /* Base shadow */
+            border-radius: 1rem; md:border-radius: 1.5rem;
+            transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; /* Keep transition */
+        }
+        .cost-input-bg, .prev-value-input-bg, .nrv-input-bg { background-color: transparent; }
+
+        /* --- Layout Control --- */
+        .mobile-grid { display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: auto auto auto auto auto; gap: 0.75rem; }
+        .input-cost { grid-column: 1 / 3; grid-row: 1 / 2; }
+        .input-prev-val { grid-column: 3 / 5; grid-row: 1 / 2; }
+        .input-nrv { grid-column: 5 / 7; grid-row: 1 / 2; }
+        .chart-area-h { grid-column: 1 / 7; grid-row: 2 / 3; min-height: 150px; }
+        .result-begin-prov { grid-column: 1 / 3; grid-row: 3 / 4; }
+        .result-end-prov { grid-column: 3 / 5; grid-row: 3 / 4; }
+        .result-adjust { grid-column: 5 / 7; grid-row: 3 / 4; }
+        .entry-area { grid-column: 1 / 7; grid-row: 4 / 5; }
+        .example-area { grid-column: 1 / 7; grid-row: 5 / 6; }
+        .chart-area-v { display: none; }
+        .desktop-grid { display: none; }
+
+        @media (min-width: 768px) {
+            .mobile-grid { display: none; }
+            .desktop-grid { display: grid; grid-template-columns: 320px 1fr; gap: 2rem; margin-bottom: 2rem; }
+            .chart-area-v { display: block; }
+            .chart-area-h { display: none; }
+            .desktop-left-column { display: flex; flex-direction: column; gap: 2rem; }
+            .desktop-right-column { display: flex; flex-direction: column; gap: 2rem; }
+            .desktop-results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+        }
+
+        /* Input Card Item Styling */
+        .input-card { padding: 1rem; md:p-6; }
+        .input-card label { display: block; text-align: left; font-size: 0.875rem; md:text-base; font-weight: 600; color: #333; }
+        .input-card .sub-label { display: block; text-align: left; font-size: 0.7rem; md:text-xs; color: #666; margin-bottom: 0.5rem; }
+        .input-card input[type="number"] { width: 100%; padding: 0.5rem 0.6rem; font-size: 1.1rem; md:text-lg; border-radius: 0.5rem; text-align: left; background-color: rgba(255, 255, 255, 0.9); border: 1px solid #d1d5db; margin-bottom: 0.25rem; }
+        .input-card input[type="range"] { width: 100%; height: 0.6rem; margin-top: 0.5rem; border-radius: 0.5rem; background-color: rgba(210, 210, 210, 0.7); }
+        .input-card .nrv-value-display { font-size: 1rem; md:font-size: 1.1rem; font-weight: 600; color: #007aff; margin-top: 0.25rem; display: block; text-align: right;}
+
+        /* Header */
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; md:margin-bottom: 2.5rem; flex-wrap: wrap; gap: 1rem; }
+        .page-title { font-size: 1.5rem; sm:font-size: 1.75rem; md:font-size: 2.25rem; font-weight: 600; color: #1d1d1f; flex-grow: 1; }
+        .attribution { display: flex; align-items: center; gap: 0.75rem; md:gap: 1rem; flex-shrink: 0; }
+        .attribution-text { text-align: left; font-size: 0.8rem; md:font-size: 0.875rem; color: #555; }
+        .attribution-text a { color: #007aff; text-decoration: none; font-weight: 500; }
+        .attribution-text a:hover { text-decoration: underline; }
+        .attribution-qr { width: 2.5rem; height: 2.5rem; md:width: 3rem; md:height: 3rem; border-radius: 0.375rem; display: block; }
+
+        /* --- Horizontal Bar Chart Styles (Mobile Default) --- */
+        .h-chart-title { font-size: 1rem; font-weight: 600; color: #1d1d1f; text-align: center; margin-bottom: 0.75rem; }
+        .h-bar-chart-container { display: flex; flex-direction: column; gap: 0.75rem; height: 100%; width: 100%; padding: 0.5rem; position: relative; }
+        .h-bar-wrapper { display: block; position: relative; }
+        .h-bar-label { display: block; text-align: left; font-size: 0.8rem; color: #333; line-height: 1.2; margin-bottom: 0.2rem; padding-left: 0.25rem; }
+        .h-bar { height: 1.5rem; border-radius: 0.375rem; transition: width 0.1s linear, filter 0.2s ease, transform 0.2s ease-out, box-shadow 0.2s ease-out; position: relative; width: 0; transform-origin: left center; }
+        .h-bar-value { display: none !important; }
+        .h-bar.cost { background: linear-gradient(to right, #fbbf24, #fcd34d); }
+        .h-bar.nrv { background: linear-gradient(to right, #60a5fa, #93c5fd); cursor: ew-resize; }
+        .h-bar.book-value { background: linear-gradient(to right, #4ade80, #86efac); }
+        .h-cost-ceiling { display: none; }
+        .h-prev-book-value-visual { position: absolute; height: 1.5rem; border: 1px dashed #fb7299; background: none; z-index: 1; bottom: 0; left: 0; transition: width 0.1s linear; pointer-events: none; display: none; border-radius: 0.375rem; }
+        .h-write-down-visual { position: absolute; height: 1.5rem; background-color: rgba(254, 202, 202, 0.6); border-right: 1px dashed #ef4444; z-index: 2; bottom: 0; transition: width 0.1s linear, left 0.1s linear; pointer-events: none; display: none; border-radius: 0 0.375rem 0.375rem 0; }
+        .h-bar.nrv:hover { filter: brightness(1.1); }
+        /* --- End Horizontal Bar Chart Styles --- */
+
+        /* --- Vertical Bar Chart Styles (Desktop - md and up) --- */
+        .v-bar-container { height: 320px; display: flex; align-items: flex-end; justify-content: center; gap: 10%; border-bottom: 1px solid #dcdcdc; position: relative; margin-bottom: 4.5rem; padding: 0 10px; cursor: default; }
+        .v-bar, .v-prev-book-value-visual, .v-write-down-visual { width: 15%; max-width: 50px; position: absolute; transform: translateX(-50%); box-sizing: border-box; }
+        .v-cost-bar { left: calc(50% - 15% - 10%); }
+        .v-nrv-bar { left: 50%; }
+        .v-book-value-bar, .v-prev-book-value-visual, .v-write-down-visual { left: calc(50% + 15% + 10%); }
+        .v-bar { border-radius: 8px 8px 0 0; transition: height 0.1s linear, filter 0.2s ease, transform 0.2s ease-out, box-shadow 0.2s ease-out; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; bottom: 0; transform-origin: bottom center; }
+        .v-nrv-bar { cursor: ns-resize; }
+        .v-bar-label-container { position: absolute; width: 100%; text-align: center; }
+        /* Use explicit classes for positioning */
+        .v-label-pos-1 { bottom: -40px; }
+        .v-label-pos-2 { bottom: -65px; }
+        /* Apply to specific bars */
+        #vCostBar .v-bar-label-container, #vBookValueBar .v-bar-label-container { bottom: -40px; }
+        #vNrvBar .v-bar-label-container { bottom: -65px; }
+
+        .v-bar-label { display: block; font-size: 0.875rem; color: #333; font-weight: 500; white-space: nowrap; }
+        .v-bar-sub-label { display: block; font-size: 0.75rem; color: #666; white-space: nowrap; margin-top: 2px; }
+         .v-bar-value { position: absolute; top: -30px; left: 50%; transform: translateX(-50%); width: auto; min-width: 50px; text-align: center; font-size: 0.875rem; color: #1f2937; font-weight: 600; opacity: 0; transition: opacity 0.3s ease-in; background-color: rgba(255, 255, 255, 0.9); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); padding: 3px 6px; border-radius: 5px; pointer-events: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .v-bar:hover .v-bar-value { opacity: 1; }
+        .v-nrv-bar:hover { filter: brightness(1.1); }
+        .v-cost-bar { background: linear-gradient(to top, #fbbf24, #fcd34d); }
+        .v-nrv-bar { background: linear-gradient(to top, #60a5fa, #93c5fd); }
+        .v-book-value-bar { background: linear-gradient(to top, #4ade80, #86efac); }
+        .v-cost-ceiling { position: absolute; left: 5%; right: 5%; border-top: 1px dashed #aaa; z-index: 5; transition: bottom 0.4s cubic-bezier(0.25, 0.1, 0.25, 1); }
+        .v-cost-ceiling-label { position: absolute; right: 0px; top: -10px; font-size: 0.75rem; color: #555; background-color: rgba(245, 245, 247, 0.8); padding: 1px 4px; border-radius: 3px; }
+        .v-write-down-visual { border: 2px dashed #ef4444; background-color: rgba(254, 202, 202, 0.4); z-index: 4; transition: height 0.1s linear, bottom 0.1s linear; pointer-events: none; display: none; border-radius: 0; }
+        .v-write-down-label { position: absolute; top: 50%; left: calc(100% + 8px); transform: translateY(-50%); font-size: 0.75rem; color: #dc2626; background-color: rgba(255, 255, 255, 0.9); padding: 2px 5px; border-radius: 4px; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .v-prev-book-value-visual { border: 2px dashed #fb7299; background: none; z-index: 6; bottom: 0; transition: height 0.4s cubic-bezier(0.25, 0.1, 0.25, 1); pointer-events: none; display: none; border-radius: 0; }
+        .v-prev-book-value-label { position: absolute; bottom: 5px; left: 100%; transform: translateX(8px); font-size: 0.7rem; color: #c72c62; background-color: rgba(255, 255, 255, 0.9); padding: 1px 3px; border-radius: 3px; white-space: nowrap; }
+        /* --- End Vertical Bar Chart Styles --- */
+
+        /* Result boxes */
+        .value-box { min-height: 60px; padding: 0.5rem; md:min-height: 100px; md:padding: 1.25rem; }
+        .value-box p:first-child { font-size: 0.8rem; md:font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: #333;}
+        .value-box p:last-child { font-size: 1.1rem; md:font-size: 1.5rem; font-weight: 600; line-height: 1.1; }
+
+        /* Entry & Example boxes - Apple Style */
+        .entry-box { min-height: auto; padding: 1rem; md:padding: 1.75rem; background: rgba(245, 245, 247, 0.85); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 0.75rem; md:border-radius: 1rem; display: flex; flex-direction: column; align-items: flex-start; text-align: left;}
+        .entry-box-reversal { /* No background change */ }
+        .entry-title { display: block; color: #1d1d1f; font-weight: 600; font-size: 0.875rem; md:font-size: 1.125rem; margin-bottom: 0.5rem !important; }
+        .entry-text { color: #1d1d1f; font-size: 0.875rem; md:font-size: 0.875rem; line-height: 1.5; }
+        .entry-subtext { color: #555; font-size: 0.75rem; md:font-size: 0.75rem; margin-top: 0.25rem;}
+        .debit-color { color: #007aff; } /* Apple Blue */
+        .credit-color { color: #555; } /* Gray */
+        .entry-box-reversal .entry-title,
+        .entry-box-reversal .entry-text,
+        .entry-box-reversal .entry-subtext { color: #1d1d1f; }
+        .entry-box-reversal .debit-color { color: #007aff; }
+        .entry-box-reversal .credit-color { color: #555; }
+
+        .example-box { padding: 1rem; md:padding: 1.5rem; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 0.75rem; md:border-radius: 1rem; background-color: rgba(235, 235, 240, 0.8); display: flex; flex-direction: column; align-items: flex-start; text-align: left;}
+        .example-box h3 { display: block; font-size: 0.875rem; md:font-size: 1.125rem; margin-bottom: 0.25rem; md:margin-bottom: 0.5rem; color: #1d1d1f; font-weight: 600;}
+        .example-box p { font-size: 0.8rem; md:font-size: 0.875rem; line-height: 1.5; md:line-height: 1.6; color: #333; overflow-y: auto; max-height: 100%;}
+
+        .slider-thumb::-webkit-slider-thumb { appearance: none; width: 18px; md:width: 22px; height: 18px; md:height: 22px; background: #fff; border-radius: 50%; cursor: pointer; border: 1px solid #ddd; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .slider-thumb::-moz-range-thumb { width: 18px; md:width: 22px; height: 18px; md:height: 22px; background: #fff; border-radius: 50%; cursor: pointer; border: 1px solid #ddd; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .formula { display: none; md:block; font-size: 0.7rem; color: #666; margin-top: -0.25rem; margin-bottom: 0.25rem; font-style: italic;}
+
+        /* --- Hint Styles --- */
+        @keyframes pulseHint { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); } 50% { transform: scale(1.05); box-shadow: 0 0 4px 8px rgba(0, 122, 255, 0); } }
+        .h-bar.nrv.hint-active { animation: pulseHint 2s infinite ease-in-out; transform-origin: left center; }
+        .nrv-hint-text { position: absolute; left: 105%; top: 50%; transform: translateY(-50%); background-color: rgba(0, 0, 0, 0.7); color: white; padding: 2px 5px; border-radius: 4px; font-size: 0.65rem; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.3s ease; z-index: 10; }
+        .h-bar.nrv.hint-active .nrv-hint-text { opacity: 1; }
+        @media (min-width: 768px) {
+             .nrv-hint-text { display: none !important; }
+             .v-bar:hover .v-bar-value { display: block !important; opacity: 1; }
+             .v-write-down-label, .v-prev-book-value-label, .v-cost-ceiling-label { display: block !important; }
+             .v-nrv-bar.hint-active { animation: none; }
+        }
+        /* --- End Hint Styles --- */
+
+        /* --- Hover Shadow Effect --- */
+        .highlight-shadow {
+             box-shadow: 0 10px 35px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0,0,0,0.05) !important;
+             z-index: 20 !important;
+        }
+        .input-card, .v-bar, .h-bar {
+            transition: box-shadow 0.2s ease-out, filter 0.2s ease-out, height 0.1s linear, width 0.1s linear;
+        }
+        /* --- End Hover Shadow Effect --- */
+
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container-wrapper frosted-glass"> <div class="page-header">
+            <h1 class="page-title">存货计价可视化演示 🎂</h1>
+            <div class="attribution">
+                <div class="attribution-text">
+                    <span>万物皆可会计</span>
+                    <a href="https://space.bilibili.com/30476248" target="_blank" rel="noopener noreferrer">B站</a>
+                </div>
+                <img src="https://image-1341330279.cos.ap-guangzhou.myqcloud.com/%E4%B8%87%E7%89%A9%E7%9A%86%E5%8F%AF%E4%BC%9A%E8%AE%A1%E5%BE%AE%E4%BF%A1" alt="微信二维码" class="attribution-qr" onerror="this.onerror=null; this.src='https://placehold.co/48x48/f5f5f7/555?text=QR';"/>
+            </div>
+        </div>
+
+        <div>
+            <div class="mobile-grid md:hidden">
+                <div class="grid-item frosted-glass input-cost input-card" data-link="cost">
+                    <label for="historicalCost_m">历史成本</label>
+                    <span class="sub-label">(做蛋糕花了多少钱)</span>
+                    <input type="number" id="historicalCost_m" value="100" min="1" step="1">
+                </div>
+                 <div class="grid-item frosted-glass input-prev-val input-card" data-link="book-value">
+                    <label for="bookValueBefore_m">旧账面价值</label>
+                    <span class="sub-label">(金额未根据最新价值调整)</span>
+                    <input type="number" id="bookValueBefore_m" value="100" min="0" step="1">
+                </div>
+                 <div class="grid-item frosted-glass input-nrv input-card" data-link="nrv">
+                    <label for="nrvSlider_m">可变现净值</label>
+                    <span class="sub-label">(现在能卖多少钱)</span>
+                    <span id="nrvValue_m" class="nrv-value-display">80.00</span>
+                    <input type="range" id="nrvSlider_m" min="0" max="130" value="80" step="1" class="slider-thumb">
+                </div>
+                <div class="chart-area chart-area-h frosted-glass bg-white/50 p-3 relative">
+                     <h3 class="h-chart-title">价值对比图</h3>
+                     <div class="h-bar-chart-container" id="hBarContainer">
+                         <div class="h-bar-wrapper">
+                             <span class="h-bar-label">做蛋糕花了:</span>
+                              <div id="hCostBar" class="h-bar cost" style="width: 100px;" data-link="cost"></div>
+                         </div>
+                         <div class="h-bar-wrapper">
+                              <span class="h-bar-label">现在能卖:</span>
+                              <div id="hNrvBar" class="h-bar nrv hint-active" style="width: 80px;" data-link="nrv">
+                                 <span class="nrv-hint-text">拖动!</span>
+                             </div>
+                         </div>
+                         <div class="h-bar-wrapper">
+                              <span class="h-bar-label">现在记账:</span>
+                               <div id="hBookValueBar" class="h-bar book-value" style="width: 80px;" data-link="book-value">
+                                 <div id="hPrevBookValueVisual" class="h-prev-book-value-visual" style="width: 100px;"></div>
+                                 <div id="hWriteDownVisual" class="h-write-down-visual" style="left: 80px; width: 20px;"></div>
+                             </div>
+                         </div>
+                     </div>
+                </div>
+                 <div class="grid-item frosted-glass value-box result-begin-prov">
+                    <p>之前贬值了多少</p>
+                    <p id="beginningProvisionDisplay_m" class="font-bold text-purple-800">0.00</p>
+                </div>
+                 <div class="grid-item frosted-glass value-box result-end-prov">
+                    <p>现在贬值了多少</p>
+                    <p id="endingProvision_m" class="font-bold text-red-800">20.00</p>
+                </div>
+                 <div class="grid-item frosted-glass value-box result-adjust">
+                    <p>需要调整：</p>
+                    <p id="adjustmentAmount_m" class="font-bold text-gray-800">-</p>
+                </div>
+                <div class="grid-item entry-box rounded-lg entry-area">
+                     <h3 class="text-sm font-semibold mb-1 entry-title">会计分录</h3>
+                     <div id="accountingEntry_m" class="font-mono space-y-1 w-full"></div>
+                 </div>
+                 <div class="grid-item example-box example-area">
+                      <h3 class="text-sm font-semibold mb-1 text-gray-700">说人话</h3>
+                     <p id="exampleText_m" class="w-full">...</p>
+                 </div>
+            </div>
+
+            <div class="desktop-grid hidden md:grid">
+                <div class="desktop-left-column">
+                     <div class="frosted-glass p-6 rounded-2xl input-card" data-link="cost">
+                        <label for="historicalCost_d" class="block text-base font-medium text-gray-700">历史成本</label>
+                        <span class="sub-label">(做蛋糕花了多少钱)</span>
+                        <input type="number" id="historicalCost_d" value="100" min="1" step="1" class="w-full shadow-sm focus:ring-blue-500 focus:border-blue-500 text-lg p-3 border border-gray-200 rounded-lg">
+                    </div>
+                     <div class="frosted-glass p-6 rounded-2xl input-card" data-link="book-value">
+                        <label for="bookValueBefore_d" class="block text-base font-medium text-gray-700">旧账面价值</label>
+                        <span class="sub-label">(金额未根据最新价值调整)</span>
+                        <input type="number" id="bookValueBefore_d" value="100" min="0" step="1" class="w-full shadow-sm focus:ring-blue-500 focus:border-blue-500 text-lg p-3 border border-gray-200 rounded-lg">
+                    </div>
+                     <div class="frosted-glass p-6 rounded-2xl input-card" data-link="nrv">
+                        <label for="nrvSlider_d" class="block text-base font-medium text-gray-700">可变现净值</label>
+                        <span class="sub-label">(现在能卖多少钱，拖动滑块改数字)</span>
+                        <span id="nrvValue_d" class="nrv-value-display">80.00 元</span>
+                        <input type="range" id="nrvSlider_d" min="0" max="130" value="80" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-thumb"> <div class="flex justify-between text-sm text-gray-600 mt-1">
+                            <span>0</span>
+                            <span id="nrvMaxLabel_d">130</span> </div>
+                    </div>
+                     <div class="p-6 rounded-2xl frosted-glass h-full example-box">
+                         <h3 class="text-xl font-semibold mb-3 text-gray-800">说人话：</h3>
+                         <p id="exampleText_d" class="text-base text-gray-700 leading-relaxed">...</p>
+                     </div>
+                </div>
+                <div class="desktop-right-column">
+                     <div class="chart-area chart-area-v p-6 rounded-2xl border border-gray-100 relative bg-white/60 frosted-glass h-full">
+                         <h3 class="text-xl font-semibold mb-8 text-gray-800 text-center">价值对比图</h3>
+                         <div class="v-bar-container" id="vBarContainer">
+                             <div id="vCostCeiling" class="v-cost-ceiling" style="bottom: 100px;"><span class="v-cost-ceiling-label">成本价</span></div>
+                              <div id="vCostBar" class="v-bar v-cost-bar" style="height: 100px;" data-link="cost"><span class="v-bar-value">100.00</span><div class="v-bar-label-container"><span class="v-bar-label">买入成本</span><small class="v-bar-sub-label">(历史成本)</small></div></div>
+                              <div id="vNrvBar" class="v-bar v-nrv-bar" style="height: 80px;" data-link="nrv"><span class="v-bar-value">80.00</span><div class="v-bar-label-container"><span class="v-bar-label">现在能卖</span><small class="v-bar-sub-label">(可变现净值)</small></div></div>
+                              <div id="vBookValueBar" class="v-bar v-book-value-bar" style="height: 80px;" data-link="book-value"><span class="v-bar-value">80.00</span><div class="v-bar-label-container"><span class="v-bar-label">现在记账价值</span><small class="v-bar-sub-label">(新账面价值)</small></div><div id="vPrevBookValueVisual" class="v-prev-book-value-visual" style="height: 100px;"><span class="v-prev-book-value-label">调整前金额</span></div></div>
+                             <div id="vWriteDownVisual" class="v-write-down-visual" style="bottom: 80px; height: 20px;"><span id="vWriteDownLabel" class="v-write-down-label">当前贬值 20.00</span></div>
+                         </div>
+                         <p class="text-sm text-center text-gray-600 mt-16">账面价值 = Min(历史成本, 可变现净值)</p>
+                    </div>
+                    <div class="desktop-results-grid">
+                         <div class="frosted-glass value-box rounded-2xl">
+                            <p class="text-base font-medium text-purple-700">之前记录的贬值额</p>
+                            <p class="formula">(成本 - 最新调整前金额)</p>
+                            <p id="beginningProvisionDisplay_d" class="text-2xl font-semibold text-purple-800">0.00</p>
+                        </div>
+                        <div class="frosted-glass value-box rounded-2xl">
+                            <p class="text-base font-medium text-red-700">当前蛋糕贬值额</p>
+                            <p class="formula">Max(0, 成本 - 现在能卖)</p>
+                            <p id="endingProvision_d" class="text-2xl font-semibold text-red-800">20.00</p>
+                        </div>
+                        <div class="frosted-glass value-box rounded-2xl">
+                            <p class="text-base font-medium text-green-700">本次需调整金额</p>
+                            <p class="formula">(当前贬值 - 之前贬值)</p>
+                            <p id="adjustmentAmount_d" class="text-2xl font-semibold text-gray-800">-</p>
+                        </div>
+                    </div>
+                    <div class="entry-box rounded-2xl">
+                        <h3 class="text-lg font-semibold mb-3 entry-title">会计记录如何变化 (会计分录)</h3>
+                        <div id="accountingEntry_d" class="text-base font-mono space-y-1"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    <script>
+        // --- Get DOM elements ---
+        const historicalCostInput_m = document.getElementById('historicalCost_m');
+        const bookValueBeforeInput_m = document.getElementById('bookValueBefore_m');
+        const nrvSlider_m = document.getElementById('nrvSlider_m');
+        const nrvValueSpan_m = document.getElementById('nrvValue_m');
+        const hBarContainer = document.getElementById('hBarContainer');
+        const hCostBar = document.getElementById('hCostBar');
+        const hNrvBar = document.getElementById('hNrvBar');
+        const hBookValueBar = document.getElementById('hBookValueBar');
+        const hCostCeiling = document.getElementById('hCostCeiling');
+        const hWriteDownVisual = document.getElementById('hWriteDownVisual');
+        const hPrevBookValueVisual = document.getElementById('hPrevBookValueVisual');
+        const beginningProvisionDisplaySpan_m = document.getElementById('beginningProvisionDisplay_m');
+        const endingProvisionSpan_m = document.getElementById('endingProvision_m');
+        const adjustmentAmountSpan_m = document.getElementById('adjustmentAmount_m');
+        const accountingEntryDiv_m = document.getElementById('accountingEntry_m');
+        const exampleText_m = document.getElementById('exampleText_m');
+        const entryBoxElement_m = accountingEntryDiv_m?.closest('.entry-box');
+        const hNrvHintText = hNrvBar?.querySelector('.nrv-hint-text');
+
+         // Desktop Elements
+        const historicalCostInput_d = document.getElementById('historicalCost_d');
+        const bookValueBeforeInput_d = document.getElementById('bookValueBefore_d');
+        const nrvSlider_d = document.getElementById('nrvSlider_d');
+        const nrvValueSpan_d = document.getElementById('nrvValue_d');
+        const nrvMaxLabel_d = document.getElementById('nrvMaxLabel_d');
+        const vBarContainer = document.getElementById('vBarContainer');
+        const vCostBar = document.getElementById('vCostBar');
+        const vNrvBar = document.getElementById('vNrvBar');
+        const vBookValueBar = document.getElementById('vBookValueBar');
+        const vCostCeiling = document.getElementById('vCostCeiling');
+        const vWriteDownVisual = document.getElementById('vWriteDownVisual');
+        const vWriteDownLabel = document.getElementById('vWriteDownLabel');
+        const vPrevBookValueVisual = document.getElementById('vPrevBookValueVisual');
+        const vPrevBookValueLabel = vPrevBookValueVisual?.querySelector('.v-prev-book-value-label');
+        const beginningProvisionDisplaySpan_d = document.getElementById('beginningProvisionDisplay_d');
+        const endingProvisionSpan_d = document.getElementById('endingProvision_d');
+        const adjustmentAmountSpan_d = document.getElementById('adjustmentAmount_d');
+        const accountingEntryDiv_d = document.getElementById('accountingEntry_d');
+        const exampleText_d = document.getElementById('exampleText_d');
+        const entryBoxElement_d = accountingEntryDiv_d?.closest('.entry-box');
+
+        // Input Cards for hover effect
+        const costCard_m = historicalCostInput_m?.closest('.input-card');
+        const prevValCard_m = bookValueBeforeInput_m?.closest('.input-card');
+        const nrvCard_m = nrvSlider_m?.closest('.input-card');
+        const costCard_d = historicalCostInput_d?.closest('.input-card');
+        const prevValCard_d = bookValueBeforeInput_d?.closest('.input-card');
+        const nrvCard_d = nrvSlider_d?.closest('.input-card');
+
+
+        // --- Constants ---
+        let MAX_BAR_HEIGHT = 320;
+        let MAX_BAR_WIDTH = 150;
+
+        // --- Hint Logic ---
+        let hintHidden = false;
+        function hideNrvHint() {
+             if (!hintHidden) {
+                 if (hNrvBar) hNrvBar.classList.remove('hint-active');
+                 if (hNrvHintText) hNrvHintText.style.display = 'none';
+                 hintHidden = true;
+             }
+        }
+        // --- End Hint Logic ---
+
+        // --- Draggable Bar Logic ---
+        let isDragging = false;
+        let startX, startY, startNrv, currentScaleFactor, dragType;
+
+        function addDragListeners(element, type) {
+            if (!element) return;
+            element.addEventListener('mousedown', (e) => { handleDragStart(e, type); });
+            element.addEventListener('touchstart', (e) => { handleDragStart(e, type); }, { passive: true });
+        }
+
+        addDragListeners(hNrvBar, 'h'); // Mobile Horizontal
+        addDragListeners(vNrvBar, 'v'); // Desktop Vertical
+
+        function handleDragStart(e, type) {
+            hideNrvHint();
+            isDragging = true;
+            dragType = type;
+            const isTouch = e.type.startsWith('touch');
+            const isMobileLayout = window.innerWidth < 768;
+            const costInput = isMobileLayout ? historicalCostInput_m : historicalCostInput_d;
+            const slider = isMobileLayout ? nrvSlider_m : nrvSlider_d;
+            const bar = isMobileLayout ? hNrvBar : vNrvBar;
+            const container = isMobileLayout ? hBarContainer : vBarContainer;
+
+            if (!slider || !costInput || !bar || !container) { isDragging = false; return; }
+
+            startNrv = parseFloat(slider.value);
+
+            if (dragType === 'h' && isMobileLayout) {
+                startX = isTouch ? e.touches[0].clientX : e.clientX;
+                MAX_BAR_WIDTH = container.clientWidth ? container.clientWidth - 10 : 100;
+                if (MAX_BAR_WIDTH <= 0) MAX_BAR_WIDTH = 100;
+                // Use fixed scaling based on max possible value
+                const maxPossibleVal = Math.max(parseFloat(costInput.value) || 1, (parseFloat(costInput.value) || 1) * 1.3);
+                currentScaleFactor = MAX_BAR_WIDTH / maxPossibleVal;
+                document.body.style.cursor = 'ew-resize';
+            } else if (dragType === 'v' && !isMobileLayout) {
+                 startY = isTouch ? e.touches[0].clientY : e.clientY;
+                 MAX_BAR_HEIGHT = container.clientHeight || 320;
+                 // Use fixed scaling based on max possible value
+                 const maxPossibleVal = Math.max(parseFloat(costInput.value) || 1, (parseFloat(costInput.value) || 1) * 1.3);
+                 currentScaleFactor = MAX_BAR_HEIGHT / maxPossibleVal;
+                 document.body.style.cursor = 'ns-resize';
+            } else {
+                 isDragging = false;
+                 return;
+            }
+
+
+             if(bar) bar.classList.add('dragging');
+             if (isTouch) {
+                 document.addEventListener('touchmove', handleMove, { passive: false });
+                 document.addEventListener('touchend', handleEnd);
+             } else {
+                 document.addEventListener('mousemove', handleMove);
+                 document.addEventListener('mouseup', handleEnd);
+             }
+             if (!isTouch && dragType === 'v') e.preventDefault();
+        }
+
+        function handleMove(e) {
+             if (!isDragging || !currentScaleFactor || currentScaleFactor === Infinity) return;
+
+             const isTouch = e.type.startsWith('touch');
+             const isHorizontal = dragType === 'h';
+             let deltaPos;
+
+             const isCurrentlyMobile = window.innerWidth < 768;
+             if ((isHorizontal && !isCurrentlyMobile) || (!isHorizontal && isCurrentlyMobile)) {
+                 handleEnd(e); return;
+             }
+
+
+             if (isHorizontal) {
+                 const currentX = isTouch ? e.touches[0].clientX : e.clientX;
+                 deltaPos = currentX - startX;
+             } else {
+                 const currentY = isTouch ? e.touches[0].clientY : e.clientY;
+                 deltaPos = currentY - startY;
+             }
+             if (isTouch) e.preventDefault();
+
+             const deltaNrv = (isHorizontal ? deltaPos : -deltaPos) / currentScaleFactor;
+             let newNrv = startNrv + deltaNrv;
+             const slider = isHorizontal ? nrvSlider_m : nrvSlider_d;
+             const valueSpan = isHorizontal ? nrvValueSpan_m : nrvValueSpan_d;
+
+             const minNrv = parseFloat(slider.min);
+             const maxNrv = parseFloat(slider.max);
+             newNrv = Math.max(minNrv, Math.min(maxNrv, newNrv));
+
+             slider.value = newNrv;
+             if(valueSpan) valueSpan.textContent = parseFloat(slider.value).toFixed(2);
+             updateSimulation(isHorizontal ? 'mobile' : 'desktop');
+        }
+
+
+        function handleEnd(e) {
+             if (isDragging) {
+                 const isHorizontal = dragType === 'h';
+                 const bar = isHorizontal ? hNrvBar : vNrvBar;
+
+                 isDragging = false;
+                 if (bar) bar.classList.remove('dragging');
+                 document.body.style.cursor = 'default';
+
+                 document.removeEventListener('touchmove', handleMove);
+                 document.removeEventListener('touchend', handleEnd);
+                 document.removeEventListener('mousemove', handleMove);
+                 document.removeEventListener('mouseup', handleEnd);
+
+                 updateSimulation(isHorizontal ? 'mobile' : 'desktop');
+             }
+        }
+        // --- End Draggable Bar Logic ---
+
+
+        // --- Sync Inputs ---
+        function syncInputs(sourceElement, targetElement) {
+             if (sourceElement && targetElement && sourceElement.value !== targetElement.value) {
+                 targetElement.value = sourceElement.value;
+             }
+        }
+
+         // --- Hover Shadow Logic ---
+         function handleHoverStart(event) {
+             const link = event.currentTarget.dataset.link;
+             if (!link) return;
+             document.querySelectorAll(`[data-link="${link}"]`).forEach(el => {
+                 el.classList.add('highlight-shadow');
+             });
+         }
+
+         function handleHoverEnd(event) {
+             const link = event.currentTarget.dataset.link;
+             if (!link) return;
+             document.querySelectorAll(`[data-link="${link}"]`).forEach(el => {
+                 el.classList.remove('highlight-shadow');
+             });
+         }
+
+         function setupHoverListeners() {
+             const addDataLink = (inputId, cardElement, linkValue) => {
+                 const input = document.getElementById(inputId);
+                 const card = input?.closest('.input-card');
+                 if (input && card) { card.dataset.link = linkValue; }
+                 else if (cardElement) { cardElement.dataset.link = linkValue; }
+             };
+             addDataLink('historicalCost_m', null, 'cost');
+             addDataLink('bookValueBefore_m', null, 'book-value');
+             addDataLink('nrvSlider_m', null, 'nrv');
+             addDataLink('historicalCost_d', null, 'cost');
+             addDataLink('bookValueBefore_d', null, 'book-value');
+             addDataLink('nrvSlider_d', null, 'nrv');
+
+             if(hCostBar) hCostBar.dataset.link = 'cost';
+             if(hNrvBar) hNrvBar.dataset.link = 'nrv';
+             if(hBookValueBar) hBookValueBar.dataset.link = 'book-value';
+             if(vCostBar) vCostBar.dataset.link = 'cost';
+             if(vNrvBar) vNrvBar.dataset.link = 'nrv';
+             if(vBookValueBar) vBookValueBar.dataset.link = 'book-value';
+
+
+             document.querySelectorAll('[data-link]').forEach(element => {
+                 element.removeEventListener('mouseenter', handleHoverStart);
+                 element.removeEventListener('mouseleave', handleHoverEnd);
+                 element.addEventListener('mouseenter', handleHoverStart);
+                 element.addEventListener('mouseleave', handleHoverEnd);
+             });
+         }
+         // --- End Hover Shadow Logic ---
+
+
+        // --- Update Function ---
+        function updateSimulation(source = 'desktop') {
+            let isMobile = window.innerWidth < 768;
+
+            // Determine Active Elements & Sync
+            let activeHistoricalCostInput, activeBookValueBeforeInput, activeNrvSlider, activeNrvValueSpan;
+            if (isMobile) {
+                MAX_BAR_WIDTH = hBarContainer?.clientWidth ? hBarContainer.clientWidth - 10 : 100;
+                if (MAX_BAR_WIDTH <= 0) MAX_BAR_WIDTH = 100;
+                activeHistoricalCostInput = historicalCostInput_m;
+                activeBookValueBeforeInput = bookValueBeforeInput_m;
+                activeNrvSlider = nrvSlider_m;
+                activeNrvValueSpan = nrvValueSpan_m;
+                if (source !== 'mobile') { syncInputs(historicalCostInput_d, activeHistoricalCostInput); syncInputs(bookValueBeforeInput_d, activeBookValueBeforeInput); syncInputs(nrvSlider_d, activeNrvSlider); }
+            } else {
+                MAX_BAR_HEIGHT = vBarContainer?.clientHeight || 320;
+                activeHistoricalCostInput = historicalCostInput_d;
+                activeBookValueBeforeInput = bookValueBeforeInput_d;
+                activeNrvSlider = nrvSlider_d;
+                activeNrvValueSpan = nrvValueSpan_d;
+                 if (source !== 'desktop') { syncInputs(historicalCostInput_m, activeHistoricalCostInput); syncInputs(bookValueBeforeInput_m, activeBookValueBeforeInput); syncInputs(nrvSlider_m, activeNrvSlider); }
+            }
+
+            // Get Values
+            let historicalCost = parseFloat(activeHistoricalCostInput.value) || 0;
+            let bookValueBefore = parseFloat(activeBookValueBeforeInput.value) || 0;
+            let nrv = parseFloat(activeNrvSlider.value) || 0;
+
+            // Validation
+             if (historicalCost <= 0) { historicalCost = 1; activeHistoricalCostInput.value = historicalCost; }
+             let validatedBookValueBefore = bookValueBefore;
+             if (validatedBookValueBefore > historicalCost) { validatedBookValueBefore = historicalCost; activeBookValueBeforeInput.value = validatedBookValueBefore; }
+             if (validatedBookValueBefore < 0) { validatedBookValueBefore = 0; activeBookValueBeforeInput.value = validatedBookValueBefore; }
+             bookValueBefore = validatedBookValueBefore;
+
+            // Calculations
+            const beginningProvision = Math.max(0, historicalCost - bookValueBefore);
+            const endingRequiredProvision = Math.max(0, historicalCost - nrv);
+            const adjustmentAmount = endingRequiredProvision - beginningProvision;
+            const bookValue = historicalCost - endingRequiredProvision;
+
+            // Update NRV Slider Range - Max 1.3x Cost
+             const maxNrvSliderValue = Math.max(10, historicalCost * 1.3); // Using 1.3
+             if (parseFloat(activeNrvSlider.max) !== maxNrvSliderValue) {
+                 activeNrvSlider.max = maxNrvSliderValue;
+                 if (!isMobile && nrvMaxLabel_d) nrvMaxLabel_d.textContent = maxNrvSliderValue.toFixed(0);
+                 if (nrv > maxNrvSliderValue && !isDragging) {
+                      nrv = maxNrvSliderValue;
+                      activeNrvSlider.value = nrv;
+                 }
+             }
+             if (!isDragging) {
+                 activeNrvValueSpan.textContent = nrv.toFixed(2) + (isMobile ? '' : ' 元');
+             }
+
+
+            // Update Visualization (Conditional)
+            // Use scaling based on fixed max (cost * 1.3) for stability of cost bar
+            const maxForScaling = Math.max(historicalCost, historicalCost * 1.3, 1); // Use 1.3 multiplier
+
+            if (isMobile) {
+                // Update Horizontal Chart
+                const scaleFactor = MAX_BAR_WIDTH / maxForScaling; // Use fixed max for scaling
+                const costWidth = Math.min(MAX_BAR_WIDTH, historicalCost * scaleFactor);
+                const nrvWidth = Math.min(MAX_BAR_WIDTH, nrv * scaleFactor);
+                const bookValueWidth = Math.min(MAX_BAR_WIDTH, bookValue * scaleFactor);
+                const writeDownWidth = Math.max(0, costWidth - bookValueWidth); // Width difference
+                const prevBookValue = Math.min(historicalCost, bookValueBefore);
+                const prevBookValueWidth = Math.min(MAX_BAR_WIDTH, prevBookValue * scaleFactor);
+
+                if(hCostBar) hCostBar.style.width = `${costWidth}px`;
+                if(hNrvBar) hNrvBar.style.width = `${nrvWidth}px`;
+                if(hBookValueBar) hBookValueBar.style.width = `${bookValueWidth}px`;
+
+                if (hWriteDownVisual) {
+                    if (endingRequiredProvision > 0.005) { hWriteDownVisual.style.display = 'block'; hWriteDownVisual.style.left = `${bookValueWidth}px`; hWriteDownVisual.style.width = `${writeDownWidth}px`; }
+                    else { hWriteDownVisual.style.display = 'none'; }
+                }
+                if (hPrevBookValueVisual) {
+                     if (prevBookValueWidth > 0.1 && Math.abs(prevBookValueWidth - bookValueWidth) > 1) {
+                         hPrevBookValueVisual.style.display = 'block'; hPrevBookValueVisual.style.width = `${prevBookValueWidth}px`; hPrevBookValueVisual.style.bottom = '0'; hPrevBookValueVisual.style.left = '0';
+                     } else { hPrevBookValueVisual.style.display = 'none'; }
+                 }
+
+            } else {
+                // Update Vertical Chart
+                 const scaleFactor = MAX_BAR_HEIGHT / maxForScaling; // Use fixed max for scaling
+                 const costHeight = Math.min(MAX_BAR_HEIGHT, historicalCost * scaleFactor);
+                 const nrvHeight = Math.min(MAX_BAR_HEIGHT, nrv * scaleFactor);
+                 const bookValueHeight = Math.min(MAX_BAR_HEIGHT, bookValue * scaleFactor);
+                 const writeDownHeight = Math.max(0, costHeight - bookValueHeight);
+                 const prevBookValue = Math.min(historicalCost, bookValueBefore);
+                 const prevBookValueHeight = Math.min(MAX_BAR_HEIGHT, prevBookValue * scaleFactor);
+
+                 if(vCostBar) vCostBar.style.height = `${costHeight}px`;
+                 if(vNrvBar) vNrvBar.style.height = `${nrvHeight}px`;
+                 if(vBookValueBar) vBookValueBar.style.height = `${bookValueHeight}px`;
+                 if(vCostCeiling) vCostCeiling.style.bottom = `${costHeight}px`;
+
+                 // Update hover values for desktop vertical bars
+                 if(vCostBar) vCostBar.querySelector('.v-bar-value').textContent = historicalCost.toFixed(2);
+                 if(vNrvBar) vNrvBar.querySelector('.v-bar-value').textContent = nrv.toFixed(2); // Added fix
+                 if(vBookValueBar) vBookValueBar.querySelector('.v-bar-value').textContent = bookValue.toFixed(2); // Added fix
+
+
+                 if (vWriteDownVisual) {
+                     if (endingRequiredProvision > 0.005) { vWriteDownVisual.style.display = 'block'; vWriteDownVisual.style.bottom = `${bookValueHeight}px`; vWriteDownVisual.style.height = `${writeDownHeight}px`; if(vWriteDownLabel) vWriteDownLabel.textContent = `当前贬值 ${endingRequiredProvision.toFixed(2)}`; }
+                     else { vWriteDownVisual.style.display = 'none'; }
+                 }
+                 if (vPrevBookValueVisual) {
+                     if (prevBookValueHeight > 0.1 && Math.abs(prevBookValueHeight - bookValueHeight) > 1) { vPrevBookValueVisual.style.display = 'block'; vPrevBookValueVisual.style.height = `${prevBookValueHeight}px`; if(vPrevBookValueLabel) vPrevBookValueLabel.textContent = `调整前金额 ${prevBookValue.toFixed(2)}`; }
+                     else { vPrevBookValueVisual.style.display = 'none'; }
+                 }
+            }
+
+
+            // Update Calculation Results Display
+            const targetBeginningProv = isMobile ? beginningProvisionDisplaySpan_m : beginningProvisionDisplaySpan_d;
+            const targetEndingProv = isMobile ? endingProvisionSpan_m : endingProvisionSpan_d;
+            const targetAdjustment = isMobile ? adjustmentAmountSpan_m : adjustmentAmountSpan_d;
+            if(targetBeginningProv) targetBeginningProv.textContent = beginningProvision.toFixed(2);
+            if(targetEndingProv) targetEndingProv.textContent = endingRequiredProvision.toFixed(2);
+            if(targetAdjustment) {
+                targetAdjustment.textContent = adjustmentAmount.toFixed(2);
+                targetAdjustment.classList.remove('text-red-600', 'text-green-600', 'text-gray-800');
+                if (adjustmentAmount > 0.005) { targetAdjustment.classList.add('text-red-600'); if(!isMobile) targetAdjustment.textContent += " (计提)";}
+                else if (adjustmentAmount < -0.005) { targetAdjustment.classList.add('text-green-600'); if(!isMobile) targetAdjustment.textContent += " (转回)";}
+                else { targetAdjustment.classList.add('text-gray-800'); if(!isMobile) targetAdjustment.textContent += " (无调整)";}
+            }
+
+
+            // Generate Accounting Entry
+            let entryHtml = '';
+            const absAdjustment = Math.abs(adjustmentAmount);
+            const targetEntryBox = isMobile ? entryBoxElement_m : entryBoxElement_d;
+            const targetEntryDiv = isMobile ? accountingEntryDiv_m : accountingEntryDiv_d;
+            if (targetEntryBox && targetEntryDiv) {
+                 targetEntryBox.classList.remove('entry-box-reversal');
+
+                if (adjustmentAmount < -0.005) { // Reversal
+                    entryHtml = `<p class="entry-text"><span class="debit-color font-semibold">借</span>：存货跌价准备 &nbsp;&nbsp; ${absAdjustment.toFixed(2)}</p><p class="entry-text">&nbsp;&nbsp;<span class="credit-color font-semibold">贷</span>：资产减值损失 &nbsp;&nbsp; ${absAdjustment.toFixed(2)}</p><p class="text-xs entry-subtext mt-1">(减少或转回之前记录的贬值)</p> `;
+                } else if (adjustmentAmount > 0.005) { // Provision
+                        entryHtml = `<p class="entry-text"><span class="debit-color font-semibold">借</span>：资产减值损失 &nbsp;&nbsp; ${absAdjustment.toFixed(2)}</p><p class="entry-text">&nbsp;&nbsp;<span class="credit-color font-semibold">贷</span>：存货跌价准备 &nbsp;&nbsp; ${absAdjustment.toFixed(2)}</p><p class="text-xs entry-subtext mt-1">(账上多记一笔贬值)</p> `;
+                } else { // No adjustment
+                        if (nrv >= historicalCost) { entryHtml = `<p class="${isMobile ? 'entry-text' : 'entry-subtext'}">≥成本,无减值</p>`; }
+                        else { entryHtml = `<p class="${isMobile ? 'entry-text' : 'entry-subtext'}">贬值未变,无调整</p>`; }
+                }
+                 targetEntryDiv.innerHTML = entryHtml;
+            }
+
+
+             // Update Example Text
+             const targetExampleText = isMobile ? exampleText_m : exampleText_d;
+             if(targetExampleText) {
+                 let exampleAction = "";
+                 if (adjustmentAmount > 0.005) { exampleAction = `现在市场不好只能卖 ${nrv.toFixed(0)} 元，比上次记账的金额 (${bookValueBefore.toFixed(0)}) 还低，所以要<strong class='text-red-600'>再多记 ${adjustmentAmount.toFixed(2)} 元的贬值</strong>。`; }
+                 else if (adjustmentAmount < -0.005) { if (nrv >= historicalCost) { exampleAction = `现在市场变好了，能卖 ${nrv.toFixed(0)} 元 (≥ 成本 ${historicalCost.toFixed(0)} 了！)，所以要把之前记录的 ${beginningProvision.toFixed(2)} 元贬值<strong class='text-green-600'>全部减少或转回</strong>。`; } else { exampleAction = `现在市场稍微好转能卖 ${nrv.toFixed(0)} 元，比上次记账的金额 (${bookValueBefore.toFixed(0)}) 高了点，可以<strong class='text-green-600'>减少或转回 ${Math.abs(adjustmentAmount).toFixed(2)} 元</strong>之前记录的贬值。`; } }
+                 else { if (nrv >= historicalCost && beginningProvision > 0) { exampleAction = `现在市场变好了，能卖 ${nrv.toFixed(0)} 元 (≥ 成本 ${historicalCost.toFixed(0)} 了！)，要把之前记录的 ${beginningProvision.toFixed(2)} 元贬值<strong class='text-green-600'>全部减少或转回</strong>。`; } else if (nrv < historicalCost && endingRequiredProvision.toFixed(2) === beginningProvision.toFixed(2)) { exampleAction = `虽然现在市场价 ${nrv.toFixed(0)} 元低于成本，但和上次 (${bookValueBefore.toFixed(0)}) 相比，需要记录的总贬值额 (${endingRequiredProvision.toFixed(2)}) 没变，所以<strong class='text-gray-600'>记录不变</strong>。`; } else { exampleAction = `现在市场价 ${nrv.toFixed(0)} 元 (≥ 成本 ${historicalCost.toFixed(0)})，而且之前也没记录过贬值，所以<strong class='text-gray-600'>记录不变</strong>。`; } }
+                 targetExampleText.innerHTML = `假设做这个蛋糕花了 ${historicalCost.toFixed(0)} 元成本。上次记账时它的金额是 ${bookValueBefore.toFixed(0)} 元 (意味着当时已记录了 ${beginningProvision.toFixed(2)} 元贬值)。 ${exampleAction} 最终现在记账时，这个蛋糕价值 ${bookValue.toFixed(2)} 元。`;
+             }
+        }
+
+        // --- Event Listeners ---
+        function setupSyncListeners() {
+            const inputs_m = [historicalCostInput_m, bookValueBeforeInput_m, nrvSlider_m];
+            const inputs_d = [historicalCostInput_d, bookValueBeforeInput_d, nrvSlider_d];
+
+            inputs_m.forEach((input_m, index) => {
+                if (input_m) {
+                    input_m.addEventListener('input', () => {
+                        syncInputs(input_m, inputs_d[index]);
+                        if (index === 2) hideNrvHint();
+                        updateSimulation('mobile');
+                    });
+                }
+            });
+
+            inputs_d.forEach((input_d, index) => {
+                 if (input_d) {
+                     input_d.addEventListener('input', () => {
+                         syncInputs(input_d, inputs_m[index]);
+                         updateSimulation('desktop');
+                     });
+                 }
+            });
+        }
+
+
+        // Initial calculation on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            syncInputs(historicalCostInput_d, historicalCostInput_m);
+            syncInputs(bookValueBeforeInput_d, bookValueBeforeInput_m);
+            syncInputs(nrvSlider_d, nrvSlider_m);
+            setupSyncListeners();
+            setupHoverListeners();
+            if (hNrvBar && !hintHidden && window.innerWidth < 768) {
+                 hNrvBar.classList.add('hint-active');
+            }
+            updateSimulation();
+        });
+
+        // Update on resize
+         window.addEventListener('resize', updateSimulation);
+
+    </script>
+</body>
+</html>
